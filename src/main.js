@@ -4,7 +4,8 @@ import { Home } from './home.js';
 import { CameraRig } from './rig.js';
 import { LAYOUTS } from './layouts.js';
 import { rotateXZ } from './blueprints.js';
-import { loadSave, persist, wipeSave } from './save.js';
+import { loadSave, persist as persistSave, wipeSave, SAVE_KEY } from './save.js';
+import * as backup from './backup.js';
 import { CATALOG, DECOR, BY_KIND, NAME, coinsFor, isDecor } from './catalog.js';
 import { hash2 } from './rng.js';
 import { footprint } from './footprint.js';
@@ -57,6 +58,11 @@ const ui = {
 };
 
 let save = loadSave();
+// After a restore has been written we only wait for the reload: nothing may save the old village over it.
+let restoring = false;
+const persist = (s) => {
+  if (!restoring) persistSave(s);
+};
 sfx.setMuted(save.muted);
 if (!DEV) {
   // 10-second sessions are a development tool only.
@@ -148,6 +154,7 @@ if (targetRadius() > save.islandRadius) {
 // Villagers and animals live on the forever island and follow its roads and land.
 const life = new Life(home);
 persist(save);
+backup.snapshot(save, dayKey(Date.now())); // today's copy (the last few days are kept)
 
 const rig = new CameraRig(view.camera, view.controls);
 
@@ -276,6 +283,7 @@ function completeSession() {
   save.coinsEarned = (save.coinsEarned || 0) + earned;
   const day = dayKey(Date.now());
   save.days[day] = (save.days[day] || 0) + s.durationMs;
+  backup.keepStorage(); // someone who finishes sessions wants their village kept
   p.done = Math.min(total, s.startDone + s.quota);
   p.sessionsDone += 1;
   if (p.done >= total) p.complete = true; // becomes a building after the celebration (or on the next load)
@@ -314,6 +322,7 @@ function celebrate() {
       const record = finalizeProject();
       toast(`${NAME(record.kind)} finished!`);
       setTimeout(() => life.celebrate(record.x, record.z), 600);
+      setTimeout(maybeNudgeBackup, 4500);
     } else toast(`${NAME(p.kind)}: ${p.sessionsDone} of ${sessions} sessions done`);
     setTimeout(
       () =>
@@ -601,6 +610,142 @@ function renderStats() {
   }
   if (!save.buildings.length) village.textContent = 'Nothing placed yet.';
   setText($('village-aside'), `${save.paths.length} road tiles`);
+  renderBackup();
+}
+
+// ---------- backup + restore (src/backup.js) ----------
+
+const BACKUP_NUDGE_MS = 14 * 86400000;
+let pendingRestore = null; // village picked in the restore panel, checked and waiting for the button
+
+function ago(ts) {
+  const min = Math.round((Date.now() - ts) / 60000);
+  if (min < 2) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
+function renderBackup() {
+  setText($('backup-aside'), save.lastBackup ? `last copy ${ago(save.lastBackup)}` : 'no copy yet');
+}
+
+function markBackedUp() {
+  save.lastBackup = Date.now();
+  persist(save);
+  renderBackup();
+}
+
+function restoreNote(text, bad = false) {
+  setText($('restore-note'), text);
+  $('restore-note').classList.toggle('bad', bad);
+}
+
+/** Check a code / file / snapshot and say what it holds before anything is replaced. */
+async function previewRestore(text) {
+  pendingRestore = null;
+  $('restore-go').hidden = true;
+  if (!String(text || '').trim()) return restoreNote('');
+  try {
+    const data = await backup.decode(text);
+    pendingRestore = data;
+    restoreNote(`This village has ${backup.describe(data)}. Your current one (${backup.describe(save)}) is kept as a backup in this browser.`);
+    $('restore-go').hidden = false;
+  } catch (err) {
+    restoreNote(err.message, true);
+  }
+}
+
+function renderSnapshots() {
+  const box = $('restore-snaps');
+  box.replaceChildren();
+  const items = backup.snapshots().map((s) => ({
+    label: `${new Date(`${s.day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}`,
+    data: s.data,
+  }));
+  const before = backup.beforeRestore();
+  if (before) items.push({ label: 'Before the last restore', data: before });
+  if (!items.length) return;
+  box.appendChild(Object.assign(document.createElement('span'), { className: 'stat-note', textContent: 'Or go back to:' }));
+  for (const it of items) {
+    const b = document.createElement('button');
+    b.className = 'mini-chip';
+    b.textContent = it.label;
+    b.title = backup.describe(it.data);
+    b.addEventListener('click', () => {
+      $('restore-code').value = '';
+      previewRestore(JSON.stringify(it.data));
+    });
+    box.appendChild(b);
+  }
+}
+
+$('backup-download').addEventListener('click', () => {
+  sfx.uiTick();
+  backup.download(save);
+  markBackedUp();
+  toast('Village saved as a file');
+});
+$('backup-copy').addEventListener('click', async () => {
+  sfx.uiTick();
+  const code = await backup.encode(save);
+  try {
+    await navigator.clipboard.writeText(code);
+    markBackedUp();
+    toast('Village code copied: paste it somewhere safe');
+  } catch {
+    // no clipboard access: show the code so it can be copied by hand
+    $('restore-panel').hidden = false;
+    $('restore-code').value = code;
+    $('restore-code').select();
+    markBackedUp();
+    restoreNote('Copy this code and keep it somewhere safe.');
+  }
+});
+$('backup-restore').addEventListener('click', () => {
+  sfx.uiTick();
+  const open = $('restore-panel').hidden;
+  $('restore-panel').hidden = !open;
+  $('backup-restore').setAttribute('aria-expanded', String(open));
+  if (open) {
+    renderSnapshots();
+    $('restore-code').focus();
+  }
+});
+let restoreTimer = 0;
+$('restore-code').addEventListener('input', (e) => {
+  clearTimeout(restoreTimer);
+  restoreTimer = setTimeout(() => previewRestore(e.target.value), 250);
+});
+$('restore-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  if (file.size > 5_000_000) return restoreNote('That file is far too big to be a village backup.', true);
+  $('restore-code').value = '';
+  previewRestore(await file.text());
+});
+$('restore-go').addEventListener('click', () => {
+  if (!pendingRestore) return;
+  if (state !== 'home') return restoreNote('Finish or give up the current session first, then restore.', true);
+  if (!backup.restore(pendingRestore, SAVE_KEY)) return restoreNote('This browser is blocking storage, so the village could not be replaced.', true);
+  restoring = true;
+  try {
+    sessionStorage.setItem('vfw.restored', '1');
+  } catch {}
+  location.reload();
+});
+
+/** After a finished building, now and then: a gentle reminder to keep a copy. */
+function maybeNudgeBackup() {
+  const now = Date.now();
+  if (save.sessions < 5 || (save.lastBackup && now - save.lastBackup < BACKUP_NUDGE_MS)) return;
+  if (save.backupNudge && now - save.backupNudge < BACKUP_NUDGE_MS) return;
+  save.backupNudge = now;
+  persist(save);
+  toast('Tip: keep a copy of your village. Open Stats, then "Keep your village safe"');
 }
 
 let shopTab = 'build';
@@ -1012,6 +1157,12 @@ if (save.session && save.project?.x != null) {
   }
   rig.snap(stations.home());
 }
+try {
+  if (sessionStorage.getItem('vfw.restored')) {
+    sessionStorage.removeItem('vfw.restored');
+    setTimeout(() => toast('Village restored'), 600);
+  }
+} catch {}
 
 // ---------- time + weather ----------
 

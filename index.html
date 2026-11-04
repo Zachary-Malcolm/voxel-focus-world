@@ -187,6 +187,24 @@
             <div class="stat-head"><span>Your village</span><span id="village-aside" class="stat-aside"></span></div>
             <div id="village" class="village"></div>
           </div>
+          <div class="stat-block">
+            <div class="stat-head"><span>Keep your village safe</span><span id="backup-aside" class="stat-aside"></span></div>
+            <div class="stat-note">Your village lives only in this browser. Save a copy now and then, or use one to move it to another device.</div>
+            <div class="backup-actions">
+              <button id="backup-download" class="btn btn-soft" title="Download your village as a file">Save file</button>
+              <button id="backup-copy" class="btn btn-soft">Copy code</button>
+              <button id="backup-restore" class="btn btn-soft" aria-expanded="false">Restore…</button>
+            </div>
+            <div id="restore-panel" class="restore-panel" hidden>
+              <textarea id="restore-code" rows="3" placeholder="Paste a village code here" spellcheck="false" autocomplete="off"></textarea>
+              <div class="backup-actions">
+                <label class="btn btn-soft file-btn">Choose a file<input id="restore-file" type="file" accept=".json,application/json,text/plain" /></label>
+              </div>
+              <div id="restore-snaps" class="restore-snaps"></div>
+              <div id="restore-note" class="stat-note" role="status"></div>
+              <button id="restore-go" class="btn btn-go" hidden>Replace my village with this one</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>

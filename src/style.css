@@ -460,7 +460,7 @@ html, body {
 
 /* ---------- stats sheet ---------- */
 .stats-sheet { width: min(560px, 100%); }
-.stats-body { padding: 4px 22px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+.stats-body { padding: 4px 22px 22px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 18px; }
 .stat-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .tile { background: #f6f9fc; border-radius: 14px; padding: 12px; }
 .tile-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
@@ -509,6 +509,31 @@ html, body {
 .village { display: flex; flex-wrap: wrap; gap: 6px; }
 .village span { padding: 5px 10px; border-radius: 999px; background: #f3f6fa; font-size: 13px; font-weight: 700; }
 .village em { font-style: normal; color: var(--ink-soft); }
+
+/* backup + restore (stats sheet) */
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.backup-actions .btn { flex: 1 1 0; min-width: 0; font-size: 14px; padding: 10px 10px; white-space: nowrap; }
+.restore-panel { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; padding: 12px; border-radius: 14px; background: #f6f9fc; }
+.restore-panel[hidden] { display: none; }
+.restore-panel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 2px solid #dfe7ef;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font: 600 12px/1.4 ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  color: var(--ink);
+  background: #fff;
+}
+.restore-panel textarea:focus { outline: none; border-color: var(--go); }
+.file-btn { position: relative; overflow: hidden; text-align: center; cursor: pointer; }
+.file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.restore-snaps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.restore-snaps:empty { display: none; }
+.restore-snaps .mini-chip { font-size: 12px; }
+.restore-panel .stat-note.bad { color: #d64545; }
+#restore-go { margin-top: 8px; }
 
 @media (max-width: 520px) {
   .stat-tiles { grid-template-columns: repeat(2, 1fr); }

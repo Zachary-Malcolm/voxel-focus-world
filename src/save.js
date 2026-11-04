@@ -4,6 +4,7 @@ import { STARTER_KINDS } from './catalog.js';
 const STARTING_COINS = 50;
 
 const KEY = 'vfw.save.v2';
+export const SAVE_KEY = KEY;
 const V1_KEY = 'vfw.save.v1';
 
 export function defaultSave() {
