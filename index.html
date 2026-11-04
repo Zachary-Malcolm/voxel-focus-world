@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel Focus World</title>
+    <meta name="description" content="A focus timer that builds a cozy voxel village while you work." />
+    <meta name="theme-color" content="#5fb8ff" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Focus World" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+
+    <header class="brand">
+      <img class="brand-mark" src="/icons/favicon.svg" alt="" width="22" height="22" />
+      <span>Voxel Focus World</span>
+    </header>
+
+    <div class="top-right">
+      <div id="coins" class="coin-pill" title="Coins: 1 per focused minute, +5 per finished session">
+        <span class="coin" aria-hidden="true"></span><span id="coin-count">0</span>
+        <span id="coin-float" class="coin-float" aria-hidden="true"></span>
+      </div>
+      <button id="shop-btn" class="pill-btn">Shop</button>
+      <button id="edit-btn" class="icon-btn" aria-label="Edit your world" title="Edit your world: move, paint, layouts" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19l9.5-9.5" stroke="currentColor" stroke-width="3" stroke-linecap="round" /><path d="M12.2 4.6l3.3-1.4a1 1 0 0 1 1 .2l4.1 4.1a1 1 0 0 1-.3 1.6l-2.4 1.1a1 1 0 0 1-1.1-.2l-4.8-4.8a.4.4 0 0 1 .2-.6z" fill="currentColor" /></svg>
+      </button>
+      <button id="stats-btn" class="icon-btn" aria-label="Your stats" title="Stats">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="12" width="4" height="8" rx="1.5" fill="currentColor" /><rect x="10" y="6" width="4" height="14" rx="1.5" fill="currentColor" /><rect x="16" y="9" width="4" height="11" rx="1.5" fill="currentColor" /></svg>
+      </button>
+      <div class="sky-wrap">
+        <button id="sky-btn" class="icon-btn" aria-label="Time and weather" title="Time and weather" aria-expanded="false" aria-controls="sky-pop">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle id="sky-sun" cx="12" cy="12" r="4.5" fill="currentColor" /><path id="sky-rays" d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><path id="sky-moon" d="M15.5 3.5a8.5 8.5 0 1 0 5 13.5A7 7 0 0 1 15.5 3.5z" fill="currentColor" hidden /></svg>
+        </button>
+        <div id="sky-pop" class="sky-pop" role="dialog" aria-label="Time and weather" hidden>
+          <div class="pop-row"><span class="pop-label">Time of day</span><button id="sky-live" class="mini-chip" aria-pressed="true" title="Follow your real clock">Live</button></div>
+          <input id="sky-hour" class="sky-range" type="range" min="0" max="24" step="0.25" aria-label="Hour of day" />
+          <div class="sky-scale"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+          <div class="pop-row"><span class="pop-label">Weather</span><span id="sky-now" class="pop-hint"></span></div>
+          <div id="sky-weather" class="weather-chips"></div>
+          <div class="pop-row"><span class="pop-label">Music</span><button id="music-btn" class="mini-chip" aria-pressed="true">On</button></div>
+          <div id="install-row" class="pop-row" hidden><span class="pop-label">Use it as an app</span><button id="install-btn" class="mini-chip">Install</button></div>
+        </div>
+      </div>
+      <button id="sound-btn" class="icon-btn" aria-label="Mute sound" title="Sound">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" />
+          <path id="sound-waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <path id="sound-x" d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" hidden />
+        </svg>
+      </button>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="tray" class="tray" hidden></div>
+
+    <section id="timer-panel" class="panel" aria-label="Focus timer">
+      <div class="ring-wrap">
+        <svg class="ring" viewBox="0 0 140 140" aria-hidden="true">
+          <circle class="ring-track" cx="70" cy="70" r="62" />
+          <circle id="ring-fill" class="ring-fill" cx="70" cy="70" r="62" />
+        </svg>
+        <div class="ring-text">
+          <div id="time" class="time">25:00</div>
+          <div id="next" class="next">Tree</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="bp-btn" class="bp-row" aria-label="Choose blueprint">
+          <img id="bp-img" class="bp-img" alt="" />
+          <span class="bp-text">
+            <span id="bp-name" class="bp-name">Tree</span>
+            <span id="bp-sub" class="bp-sub">1 session</span>
+            <span class="bp-bar"><i id="bp-fill"></i></span>
+          </span>
+          <span id="bp-change" class="bp-change">Change</span>
+        </button>
+        <div id="modes" class="modes" role="radiogroup" aria-label="Session length">
+          <button class="chip" data-mode="focus" role="radio">Focus 25m</button>
+          <button class="chip" data-mode="debug" role="radio">Debug 10s</button>
+        </div>
+        <button id="main-btn" class="btn btn-go">Start focus</button>
+        <div class="foot">
+          <span id="stats" class="stats">0 sessions</span>
+          <button id="peek-btn" class="link-btn" hidden>View world</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="place-panel" class="panel place-panel" aria-label="Place building" hidden>
+      <div class="place-text">
+        <div id="place-title" class="place-title">Place your house</div>
+        <div id="place-hint" class="place-hint">Tap a spot on your island</div>
+      </div>
+      <div class="place-actions">
+        <button id="rotate-btn" class="btn btn-soft" title="Rotate (R)">Rotate</button>
+        <button id="store-btn" class="btn btn-soft" title="Keep it in the tray (Esc)">Later</button>
+        <button id="place-btn" class="btn btn-go" title="Place (Enter)">Place here</button>
+      </div>
+    </section>
+
+    <section id="edit-panel" class="panel place-panel edit-panel" aria-label="Edit your world" hidden>
+      <div class="edit-head">
+        <div class="place-text">
+          <div id="edit-title" class="place-title">Edit your world</div>
+          <div id="edit-hint" class="place-hint"></div>
+        </div>
+        <button id="edit-close" class="close-btn" aria-label="Back">&times;</button>
+      </div>
+      <div id="paint-tools" class="paint-tools" hidden>
+        <div class="pop-row">
+          <span class="pop-label">Choose</span>
+          <div id="paint-scope" class="seg">
+            <button class="mini-chip" data-scope="one">One block</button>
+            <button class="mini-chip" data-scope="match">All like it</button>
+          </div>
+        </div>
+        <div id="swatches" class="swatches">
+          <label class="swatch swatch-custom" title="Any colour"><input id="paint-custom" type="color" value="#7fb3e6" aria-label="Pick any colour" /></label>
+        </div>
+        <div id="mat-chips" class="mat-chips"></div>
+      </div>
+      <div id="edit-actions" class="place-actions"></div>
+    </section>
+
+    <div id="layouts" class="sheet-backdrop" hidden>
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="layouts-title">
+        <header class="sheet-head">
+          <div>
+            <div id="layouts-title" class="sheet-title">Layouts</div>
+            <div class="sheet-note">Rearrange your whole village in one go. Roads re-route themselves and you can undo it.</div>
+          </div>
+          <button id="layouts-close" class="close-btn" aria-label="Close">&times;</button>
+        </header>
+        <div id="layout-grid" class="shop-grid layout-grid"></div>
+      </section>
+    </div>
+
+    <div id="shop" class="sheet-backdrop" hidden>
+      <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="shop-title">
+        <header class="sheet-head">
+          <div>
+            <div id="shop-title" class="sheet-title">Blueprints</div>
+            <div id="shop-note" class="sheet-note">Focus to earn coins. Bigger builds take more sessions.</div>
+          </div>
+          <div class="coin-pill small"><span class="coin" aria-hidden="true"></span><span id="shop-coins">0</span></div>
+          <button id="shop-close" class="close-btn" aria-label="Close">&times;</button>
+        </header>
+        <div id="shop-tabs" class="seg shop-tabs" role="radiogroup" aria-label="Shop section">
+          <button class="chip" role="radio" data-tab="build">Buildings</button>
+          <button class="chip" role="radio" data-tab="decor">Decor</button>
+        </div>
+        <div id="shop-grid" class="shop-grid"></div>
+      </section>
+    </div>
+
+    <div id="stats-sheet" class="sheet-backdrop" hidden>
+      <section class="sheet stats-sheet" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+        <header class="sheet-head">
+          <div>
+            <div id="stats-title" class="sheet-title">Your focus</div>
+            <div class="sheet-note">Every session you finish makes your world a little bigger.</div>
+          </div>
+          <button id="stats-close" class="close-btn" aria-label="Close">&times;</button>
+        </header>
+        <div class="stats-body">
+          <div id="stat-tiles" class="stat-tiles"></div>
+          <div class="stat-block">
+            <div class="stat-head"><span>This week</span><span id="week-total" class="stat-aside"></span></div>
+            <div id="week-chart" class="week-chart" role="img"></div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-head"><span>Island growth</span><span id="grow-aside" class="stat-aside"></span></div>
+            <div class="grow-bar"><i id="grow-fill"></i></div>
+            <div id="grow-note" class="stat-note"></div>
+          </div>
+          <div class="stat-block">
+            <div class="stat-head"><span>Your village</span><span id="village-aside" class="stat-aside"></span></div>
+            <div id="village" class="village"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
