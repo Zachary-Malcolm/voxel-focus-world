@@ -8,8 +8,9 @@ A focus timer for building a cozy voxel village. Focus sessions earn **coins**, 
 - Stack: Vite 8, three 0.187, tone 15. No audio files: every sound is synthesised in `src/audio.js`. The only images are the app icons.
 
 ## Repo + hosting (2026-11-04)
-- Git repo, **private** on GitHub: https://github.com/Zachary-Malcolm/voxel-focus-world (branch `main`). Zach wants it private for now. Commit messages end with the `Co-Authored-By: Claude …` line.
-- `.github/workflows/deploy.yml` builds and deploys `dist/` to GitHub Pages, but Pages is **not enabled** and the workflow is **disabled** (the first run built fine and failed at `configure-pages`). A Pages site is always public on the web, and Pages on a private repo needs a paid plan. When Zach says to go public: make the repo public, enable Pages (`build_type=workflow`), `gh workflow enable "Deploy to GitHub Pages"`, re-run it. The site would be https://zachary-malcolm.github.io/voxel-focus-world/ (`base: './'` already works under a sub-path). Confirm with Zach before any of that.
+- **Live: https://zachary-malcolm.github.io/voxel-focus-world/** · Repo (public): https://github.com/Zachary-Malcolm/voxel-focus-world (branch `main`). Zach first kept it private, then chose to make it public so Pages could run (his free plan has no Pages for private repos). Commit messages end with the `Co-Authored-By: Claude …` line.
+- **Pushing to `main` deploys** (`.github/workflows/deploy.yml`: npm ci, build, upload `dist/` to Pages). Visitors get the new build on their next load (network-first page, new SW cache). Confirm with Zach before pushing work that isn't finished, since it goes live.
+- The hosted copy is a separate origin, so its save is separate from the dev server's (5195) and the build preview's (5196).
 
 ## Installable + offline (PWA, 2026-11-04)
 - `public/manifest.webmanifest` (name, short name "Focus World", standalone, sky-blue theme `#5fb8ff`) + `public/icons/` (192/512 "any", 192/512 maskable, apple-touch 180, favicon 32 png + svg). `index.html` links them; the brand mark in the top bar is `icons/favicon.svg`.
@@ -121,7 +122,7 @@ On a backup of Zach's save (restored afterwards, his world is unchanged): select
 All 10 new blueprints and 5 decor pieces checked as large previews (screenshots in `screenshots/phase7-*.jpg`). On a backup of Zach's save (restored afterwards, his world is unchanged): Decor tab, bought a lamp (coins 1106 → 1098) and placed it right beside a cottage (adjacent OK, on the cottage / on a road refused, no road laid, villager count unchanged); placed a tavern, wizard tower, mushroom house, library and greenhouse from the tray (roads laid, villagers 12 → 18 with tavern/wizard jobs); all 5 layouts plan in < 90 ms and move the lamp with its cottage; Village green applied + Undo restored exactly; a debug session laid the first of the wizard tower's 4 sessions on the construction island. Phone width: shop tabs fit, no horizontal scroll. `npm run build` OK (1.03 MB, 271 kB gzip). Not seen yet: the new buildings at night, the new villager hats up close, decor rotation by hand.
 
 ## Verified 2026-11-04 (PWA)
-Production build on 5196: service worker activates, controls the page and precaches all 11 files; manifest serves 5 icons. Server stopped (a non-cached fetch fails, so really offline) and reload: full styled render, island + timer panel, `vfw.state === 'home'`, every asset served from the cache. Not tested: the Install button / real install (needs Chrome or Edge, not the pane), iOS home-screen add.
+Production build on 5196: service worker activates, controls the page and precaches all 11 files; manifest serves 5 icons. Server stopped (a non-cached fetch fails, so really offline) and reload: full styled render, island + timer panel, `vfw.state === 'home'`, every asset served from the cache. Not tested: the Install button / real install (needs Chrome or Edge, not the pane), iOS home-screen add. Live site checked the same day: deploy run green, SW scope `/voxel-focus-world/`, all 11 files cached, fresh world renders, no console errors.
 
 ## Known limits / ideas
 - The town square can't be moved yet; layouts keep it where it is.
