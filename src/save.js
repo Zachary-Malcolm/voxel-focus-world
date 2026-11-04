@@ -10,7 +10,7 @@ export function defaultSave() {
   return {
     version: 2,
     seed: randomSeed(), // island shape + build variants
-    islandRadius: 7,
+    islandRadius: 12,
     buildings: [], // placed in the forever world: [{ id, kind, variant, x, z, rot }]
     tray: [], // finished but not placed yet: [{ id, kind, variant }]
     nextId: 1,
@@ -29,7 +29,10 @@ export function defaultSave() {
     giveUps: 0,
     square: null, // { x, z } town square centre, chosen once
     paths: [], // paved road cells "x,z"
-    project: null, // the build in progress on the construction island: { kind, variant, done, sessionsDone }
+    // the build in progress, going up on its plot in the world: { kind, variant, done, sessionsDone,
+    // x, z, rot (chosen by the layout when its first session starts), complete? }
+    project: null,
+    layout: 'green', // layout new buildings are placed by (layouts.js key)
     session: null, // { startedAt, durationMs, startDone, quota } while a session runs (survives reloads)
   };
 }

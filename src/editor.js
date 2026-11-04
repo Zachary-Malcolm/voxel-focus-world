@@ -368,13 +368,20 @@ export class Editor {
     for (const l of LAYOUTS) {
       const card = document.createElement('button');
       card.className = 'layout-card';
-      card.innerHTML = `<svg viewBox="0 0 120 80" class="layout-art" aria-hidden="true"><rect x="1" y="1" width="118" height="78" rx="14" class="la-bg"/>${LAYOUT_ART[l.key]}</svg><span class="card-name">${l.name}</span><span class="card-meta">${l.blurb}</span>`;
+      card.dataset.layout = l.key;
+      card.innerHTML = `<svg viewBox="0 0 120 80" class="layout-art" aria-hidden="true"><rect x="1" y="1" width="118" height="78" rx="14" class="la-bg"/>${LAYOUT_ART[l.key]}</svg><span class="card-name">${l.name}</span><span class="card-meta">${l.blurb}</span><span class="tag" hidden>Current</span>`;
       card.addEventListener('click', () => this.applyLayout(l));
       this.el.grid.appendChild(card);
     }
   }
 
   openLayouts() {
+    for (const card of this.el.grid.children) {
+      const cur = card.dataset.layout === this.ctx.save.layout;
+      card.classList.toggle('current', cur);
+      card.setAttribute('aria-pressed', String(cur));
+      card.querySelector('.tag').hidden = !cur;
+    }
     this.el.sheet.hidden = false;
     this.ctx.sfx.uiTick();
   }
@@ -386,10 +393,13 @@ export class Editor {
   applyLayout(tpl) {
     const { home, save, persist, toast, life, flyHome } = this.ctx;
     this.closeLayouts();
-    if (!save.buildings.length) return void toast('Place a building first, then try a layout');
+    const prevLayout = save.layout;
+    save.layout = tpl.key; // new buildings follow it from now on
+    persist(save);
+    if (!save.buildings.length) return void toast(`${tpl.name}: new buildings will follow this layout`);
     const plan = home.planLayout(tpl);
-    if (!plan) return void toast('Not enough room for that layout yet. Focus more to grow your island');
-    const before = { moves: save.buildings.map((b) => ({ id: b.id, x: b.x, z: b.z, rot: b.rot || 0 })), paths: [...save.paths] };
+    if (!plan) return void toast(`Not enough room to rearrange yet, but new buildings will follow ${tpl.name}`);
+    const before = { moves: save.buildings.map((b) => ({ id: b.id, x: b.x, z: b.z, rot: b.rot || 0 })), paths: [...save.paths], layout: prevLayout };
     this.deselect();
     this.mode = 'busy';
     this.render(true);
@@ -411,6 +421,7 @@ export class Editor {
     this.review = null;
     this.mode = 'busy';
     this.render(true);
+    if (r.before.layout) save.layout = r.before.layout;
     home.applyMoves(r.before.moves, { paths: r.before.paths }, (paths) => {
       save.paths = paths;
       persist(save);

@@ -10,10 +10,10 @@ A focus timer that builds a cozy voxel village while you work.
 
 ## How it works
 
-- **Focus to build.** Pick a blueprint and start a session. Blocks drop onto a small construction island as the minutes pass. Give up and only that session's blocks crumble.
+- **Focus to build.** Pick a blueprint and start a session. The building rises block by block as the minutes pass, right where it will stand in your village. Give up and only that session's blocks crumble.
 - **Coins and blueprints.** Every focused minute earns a coin. Coins buy blueprints, from a wishing well to a cathedral that takes eight sessions. Decor (fences, lamps, benches, flower beds) is bought and placed straight away.
-- **A forever world.** Finished buildings are flown home and placed wherever you like. Roads are routed from each door to the town square, with bridges where they cross water.
-- **It comes alive.** The island grows with your total focus time and reveals hills, lakes and a river with a waterfall and a water wheel. Villagers walk to work and go home at night, and there are sheep, cats, dogs, ducks and birds. Time of day follows your clock, the weather drifts through sun, rain, fog and snow, and soft generative music plays.
+- **A forever world.** Each new building's spot is picked for you by the village layout you've chosen (village green, high street, hamlets…), so there's nothing to decide. Roads are routed from each door to the town square, with bridges where they cross water.
+- **It comes alive.** The island grows with your total focus time, and makes room as the village grows. New land reveals hills, lakes and a river with a waterfall and a water wheel. Villagers walk to work and go home at night, and there are sheep, cats, dogs, ducks and birds. Time of day follows your clock, the weather drifts through sun, rain, fog and snow, and soft generative music plays.
 - **Builder tools.** You can move, rotate, store or remove buildings, repaint any block's colour and material, and re-arrange the whole village with one-tap layouts (with undo).
 
 Everything is drawn from code: no image or audio assets apart from the app icon. Your village is saved in the browser (localStorage) and never leaves your device.

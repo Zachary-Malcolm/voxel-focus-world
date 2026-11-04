@@ -242,11 +242,15 @@ export class Sky {
     }
   }
 
-  stepClouds(dt, center) {
+  stepClouds(dt, center, camera) {
+    // Close up (watching a building go up, main sets closeUp) the camera is at this layer's height:
+    // the clouds melt away instead of drifting between you and the building, and gather again after.
+    void camera;
+    const close = !!this.closeUp;
     for (const c of this.weatherClouds) {
       c.a += c.speed * dt;
-      const want = this.p.cloud > c.rank + 0.04 ? 1 : 0;
-      c.vis += (want - c.vis) * Math.min(1, dt * 0.25);
+      const want = !close && this.p.cloud > c.rank + 0.04 ? 1 : 0;
+      c.vis += (want - c.vis) * Math.min(1, dt * (close ? 0.9 : 0.25));
       const cx = center.x + Math.cos(c.a) * c.r;
       const cz = center.z + Math.sin(c.a) * c.r;
       for (const p of c.parts) {
@@ -336,7 +340,7 @@ export class Sky {
     v.clouds.tint?.(_c.set('#ffffff').lerp(_a.set('#a3adba'), dark * 0.8).multiplyScalar(0.6 + 0.4 * day), glow);
 
     setNight(Math.max(1 - day, dark * 0.45));
-    this.stepClouds(dt, center);
+    this.stepClouds(dt, center, camera);
     this.stepPrecip(dt, center);
   }
 

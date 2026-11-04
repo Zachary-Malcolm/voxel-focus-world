@@ -76,16 +76,20 @@ function makeClouds(scene) {
     list.push({
       parts,
       angle: rng() * Math.PI * 2,
-      radius: 30 + rng() * 10,
+      extra: rng() * 10, // distance beyond the island's edge
       y: -14 + rng() * 10,
       speed: (0.012 + rng() * 0.012) * (rng() < 0.5 ? 1 : -1),
     });
   }
+  let edge = 30; // clouds drift in a ring just outside the island (setIsland keeps it outside as it grows)
+  let edgeTarget = null;
   function update(dt) {
+    if (edgeTarget != null) edge += (edgeTarget - edge) * Math.min(1, dt * 0.4); // drift out as the island grows
     for (const c of list) {
       c.angle += c.speed * dt;
-      const cx = Math.cos(c.angle) * c.radius;
-      const cz = Math.sin(c.angle) * c.radius;
+      const r = edge + c.extra;
+      const cx = Math.cos(c.angle) * r;
+      const cz = Math.sin(c.angle) * r;
       for (const p of c.parts) batch.set(p.handle, cx + p.px, c.y + p.py, cz + p.pz, p.s);
     }
   }
@@ -94,5 +98,9 @@ function makeClouds(scene) {
     mat.color.copy(c);
     if (glow) mat.emissive.copy(glow);
   };
-  return { update, tint };
+  const setIsland = (radius) => {
+    if (edgeTarget == null) edge = Math.max(30, radius + 9);
+    edgeTarget = Math.max(30, radius + 9);
+  };
+  return { update, tint, setIsland };
 }

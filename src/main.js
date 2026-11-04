@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { createScene } from './scene.js';
 import { Home } from './home.js';
-import { Site } from './site.js';
 import { CameraRig } from './rig.js';
+import { LAYOUTS } from './layouts.js';
+import { rotateXZ } from './blueprints.js';
 import { loadSave, persist, wipeSave } from './save.js';
 import { CATALOG, DECOR, BY_KIND, NAME, coinsFor, isDecor } from './catalog.js';
 import { hash2 } from './rng.js';
@@ -13,8 +14,6 @@ import * as sfx from './audio.js';
 const DEV = import.meta.env.DEV;
 const DURATIONS = { focus: 25 * 60 * 1000, debug: 10 * 1000 };
 const RING_LEN = 2 * Math.PI * 62;
-// Construction island: far enough out that the home island reads as a backdrop, off to one side.
-const SITE_POS = new THREE.Vector3(36, 14, 92);
 import { Sky, WEATHER } from './sky.js';
 import { tickMaterials } from './kit.js';
 import { Life } from './life.js';
@@ -72,11 +71,27 @@ if (save.session && !save.project && save.session.kind) {
 }
 if (!save.owned.includes(save.pick)) save.pick = 'tree';
 
+if (!LAYOUTS.some((l) => l.key === save.layout)) save.layout = 'green';
+const layoutTpl = () => LAYOUTS.find((l) => l.key === save.layout) || LAYOUTS[0];
+
 const view = createScene($('scene'));
 const home = new Home(view.scene);
-// Growth earned by focus: one new ring of land per 2.5 hours focused.
+// Island size: one new ring of land per 2.5 hours focused, and always room to breathe: the village
+// (buildings with their spacing, roads, the square) never covers more than a third of the land.
+const BASE_RADIUS = 12;
+const ROOM = 1 / 3;
 const GROW_EVERY_MS = 2.5 * 60 * 60 * 1000;
-const earnedRadius = () => 7 + 2 * Math.floor(save.focusMs / GROW_EVERY_MS);
+const earnedRadius = () => BASE_RADIUS + 2 * Math.floor(save.focusMs / GROW_EVERY_MS);
+function roomyRadius() {
+  let used = 25 + home.paths.size;
+  const sized = [...home.buildings.values()].map((e) => [e.rect, e.fp.decor]);
+  if (home.construction) sized.push([home.construction.rect, false]);
+  for (const [r, decor] of sized) used += (r.x1 - r.x0 + (decor ? 1 : 3)) * (r.z1 - r.z0 + (decor ? 1 : 3));
+  let r = BASE_RADIUS;
+  while (Math.PI * r * r * 0.95 * ROOM < used) r += 2; // ~5% of the land is water
+  return r;
+}
+const targetRadius = () => Math.max(earnedRadius(), roomyRadius());
 if (earnedRadius() > save.islandRadius) save.islandRadius = earnedRadius();
 home.setBase(save.islandRadius, save.seed);
 if (save.needsLayout) {
@@ -118,11 +133,22 @@ if (save.river == null) save.river = home.chooseRiver();
 home.setRiver(save.river);
 if (!save.wheel) save.wheel = home.chooseWheelSpot();
 if (save.wheel) home.setWheel(save.wheel);
+// The project in progress stands on its plot (saves from before in-place building have no plot yet:
+// it is chosen when the next session starts).
+if (save.project?.x != null) {
+  const s = save.session;
+  if (s) home.setConstruction(save.project, s.startDone + Math.floor(Math.min(1, (Date.now() - s.startedAt) / s.durationMs) * s.quota), s.startDone + s.quota);
+  else home.setConstruction(save.project, save.project.done);
+}
+// Make room if the village has outgrown its island (also how older, cramped saves open up).
+if (targetRadius() > save.islandRadius) {
+  save.islandRadius = targetRadius();
+  home.setBase(save.islandRadius, save.seed);
+}
 // Villagers and animals live on the forever island and follow its roads and land.
 const life = new Life(home);
 persist(save);
 
-const site = new Site(view.scene, SITE_POS);
 const rig = new CameraRig(view.camera, view.controls);
 
 // Shop pictures are rendered on demand (the catalog is big now), each kind once.
@@ -140,10 +166,22 @@ function ensureThumbs(kinds) {
 
 const stations = {
   home: () => ({ target: new THREE.Vector3(0, -1.5, 0), dist: 50 * Math.pow(Math.max(1, save.islandRadius / 7), 0.8) }),
-  site: () => ({
-    target: SITE_POS.clone().add(new THREE.Vector3(0, 1.5 + site.height * 0.3, 0)),
-    dist: 30 * Math.pow(Math.max(1, site.half / 4, site.height / 9), 0.85),
-  }),
+  // close to the building going up, looking at its front door from a little to one side
+  build: () => {
+    const c = home.construction;
+    if (!c) return stations.home();
+    home.group.updateMatrixWorld();
+    const r = c.rect;
+    const target = home.group.localToWorld(new THREE.Vector3((r.x0 + r.x1) / 2, 1.5 + c.fp.height * 0.3, (r.z0 + r.z1) / 2));
+    const [fx, fz] = rotateXZ(0, 1, c.project.rot || 0);
+    const a = Math.atan2(fz, fx) + 0.6;
+    const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a)).transformDirection(home.group.matrixWorld);
+    dir.y = 0;
+    dir.normalize().multiplyScalar(0.7);
+    dir.y = 0.85; // high enough to look over the houses in front
+    const half = Math.max(r.x1 - r.x0, r.z1 - r.z0) / 2;
+    return { target, dir: dir.normalize(), dist: 30 * Math.pow(Math.max(1, half / 4, c.fp.height / 9), 0.85) };
+  },
 };
 let where = 'home';
 function goTo(name, onArrive) {
@@ -153,17 +191,18 @@ function goTo(name, onArrive) {
 
 /*
  * States:
- *  home         idle in the forever world
- *  running      a session is on; this session's share of the project goes up on the construction island
+ *  home         idle in the forever world (it turns slowly)
+ *  running      a session is on; this session's share of the project goes up on its plot in the world
  *  finishing    session done, waiting for the last blocks to land (and for the tab to be visible)
- *  celebrating  hop wave; then either place the finished build or fly home with the project saved
- *  placing      choosing a spot back home (also while flying there)
- *  building     the placed building cascades into the forever world
+ *  celebrating  hop wave; a finished project becomes a building (road, villagers cheer), then back to the view
+ *  placing      choosing a spot for something from the tray or a piece of decor
+ *  building     that item cascades into the world
  *  crumbling    gave up; this session's blocks fall apart
+ *  editing      edit mode (editor.js)
+ * The island stands still in every state but home, so the camera can stay on the building.
  */
 let state = 'home';
 let confirmUntil = 0;
-let finishedItem = null; // set when the last session of a project completes
 let sessionFrom = 0; // first block index of the session that just ended
 
 // ---------- projects ----------
@@ -179,6 +218,20 @@ function projectInfo(p) {
 
 // ---------- session flow ----------
 
+/** Choose where a project will stand, by the village's layout. Grows the island if nothing fits. */
+function choosePlot(p) {
+  for (let tries = 0; tries < 8; tries++) {
+    const spot = home.planNext(layoutTpl(), p.kind, p.variant);
+    if (spot) {
+      Object.assign(p, spot);
+      return true;
+    }
+    save.islandRadius += 2; // rare: the room rule normally keeps space free
+    home.setBase(save.islandRadius, save.seed);
+  }
+  return false;
+}
+
 function startSession() {
   if (state !== 'home' || rig.flying) return;
   sfx.unlockAudio().then(sfx.startSound);
@@ -187,12 +240,16 @@ function startSession() {
     save.project = { kind: save.pick, variant: hash2(save.seed, save.buildCounter), done: 0, sessionsDone: 0 };
   }
   const p = save.project;
+  if (p.x == null && !choosePlot(p)) {
+    save.project = p.done ? p : null;
+    return void toast("Couldn't find a spot for it");
+  }
   const { quota } = projectInfo(p);
   save.session = { startedAt: Date.now(), durationMs: DURATIONS[save.mode], startDone: p.done, quota };
   persist(save);
-  site.setProject(p, p.done, p.done + quota);
+  home.setConstruction(p, p.done, p.done + quota, { animate: true });
   state = 'running';
-  goTo('site');
+  goTo('build');
 }
 
 function progressOf(s) {
@@ -203,7 +260,7 @@ function tick() {
   if (state !== 'running') return;
   const s = save.session;
   const p = progressOf(s);
-  site.setTarget(s.startDone + Math.floor(p * s.quota));
+  home.setConstructionTarget(s.startDone + Math.floor(p * s.quota));
   if (p >= 1) completeSession();
 }
 
@@ -221,14 +278,9 @@ function completeSession() {
   save.days[day] = (save.days[day] || 0) + s.durationMs;
   p.done = Math.min(total, s.startDone + s.quota);
   p.sessionsDone += 1;
+  if (p.done >= total) p.complete = true; // becomes a building after the celebration (or on the next load)
   sessionFrom = s.startDone;
-  site.setTarget(p.done);
-  finishedItem = null;
-  if (p.done >= total) {
-    finishedItem = { id: save.nextId++, kind: p.kind, variant: p.variant };
-    save.tray.push(finishedItem); // safe in the tray even if the tab closes before it's placed
-    save.project = null;
-  }
+  home.setConstructionTarget(p.done);
   persist(save);
   showCoinGain(earned);
   state = 'finishing';
@@ -236,50 +288,56 @@ function completeSession() {
     sfx.complete(); // audible nudge while the tab is in the background
     document.title = '✓ Session done · Voxel Focus World';
   }
-  if (where !== 'site') goTo('site');
+  if (where !== 'build') goTo('build');
+}
+
+/** A finished project becomes a building where it stands, with a road to its door. */
+function finalizeProject() {
+  const p = save.project;
+  const record = { id: save.nextId++, kind: p.kind, variant: p.variant, x: p.x, z: p.z, rot: p.rot || 0 };
+  save.buildings.push(record);
+  save.project = null;
+  const road = home.completeConstruction(record);
+  save.paths.push(...road.map(([x, z]) => `${x},${z}`));
+  persist(save);
+  return record;
 }
 
 function celebrate() {
   state = 'celebrating';
-  if (finishedItem) {
-    const item = finishedItem;
-    site.celebrate(0, () => {
-      sfx.complete();
-      toast(`${NAME(item.kind)} finished! Time to place it`);
-      setTimeout(() => beginPlacing(item, true), 900);
-    });
-    return;
-  }
   const p = save.project;
   const { sessions } = projectInfo(p);
-  site.celebrate(sessionFrom, () => {
+  const finished = !!p.complete;
+  home.celebrateConstruction(finished ? 0 : sessionFrom, () => {
     sfx.complete();
-    toast(`${NAME(p.kind)}: ${p.sessionsDone} of ${sessions} sessions done`);
+    if (finished) {
+      const record = finalizeProject();
+      toast(`${NAME(record.kind)} finished!`);
+      setTimeout(() => life.celebrate(record.x, record.z), 600);
+    } else toast(`${NAME(p.kind)}: ${p.sessionsDone} of ${sessions} sessions done`);
     setTimeout(
       () =>
         goTo('home', () => {
-          site.clearProject();
           state = 'home';
           setTimeout(maybeGrow, 500);
         }),
-      1100,
+      finished ? 2600 : 1400,
     );
   });
 }
 
-function beginPlacing(item, fromSite) {
+function beginPlacing(item) {
   state = 'placing';
   goTo('home', () => {
-    if (fromSite) site.clearProject();
     let tries = 0;
     while (!home.beginPlacement(item) && tries++ < 6) growIsland();
   });
 }
 
-/** Back home after a session: if enough focus has piled up, a new ring of land rises. */
+/** Back home: if enough focus has piled up, or the village needs more room, a new ring of land rises. */
 function maybeGrow() {
-  if (state !== 'home' || earnedRadius() <= save.islandRadius) return;
-  save.islandRadius = earnedRadius();
+  if (state !== 'home' || targetRadius() <= save.islandRadius) return;
+  save.islandRadius = targetRadius();
   persist(save);
   home.grow(save.islandRadius, save.seed, afterGrow);
   sfx.complete();
@@ -342,7 +400,7 @@ function placeFromTray(id) {
   const item = save.tray.find((t) => t.id === id);
   if (!item) return;
   sfx.unlockAudio().then(sfx.uiTick);
-  beginPlacing(item, false);
+  beginPlacing(item);
 }
 
 function giveUp() {
@@ -364,11 +422,11 @@ function giveUp() {
   save.giveUps = (save.giveUps || 0) + 1;
   persist(save);
   state = 'crumbling';
-  if (where !== 'site') goTo('site');
-  site.crumble(s.startDone, () => {
-    toast(kept ? `This session's work crumbled. Your ${name} keeps its earlier progress` : `The ${name} crumbled. Your world is safe`);
+  if (where !== 'build') goTo('build');
+  home.crumbleConstruction(s.startDone, () => {
+    if (!kept) home.clearConstruction(); // the plot goes back to meadow
+    toast(kept ? `This session's work crumbled. Your ${name} keeps its earlier progress` : `The ${name} crumbled. The rest of your world is safe`);
     goTo('home', () => {
-      site.clearProject();
       state = 'home';
     });
   });
@@ -376,7 +434,7 @@ function giveUp() {
 
 function togglePeek() {
   if (rig.flying || state !== 'running') return;
-  goTo(where === 'site' ? 'home' : 'site');
+  goTo(where === 'build' ? 'home' : 'build');
 }
 
 // ---------- coins + shop ----------
@@ -556,7 +614,7 @@ function buyDecor(entry) {
   persist(save);
   sfx.unlockAudio().then(sfx.purchase);
   closeShop();
-  beginPlacing(item, false);
+  beginPlacing(item);
 }
 
 function renderDecor() {
@@ -709,7 +767,7 @@ function render() {
   );
   setHidden(ui.bpFill.parentElement, !p);
   if (p) {
-    const built = running || state === 'finishing' || state === 'celebrating' ? site.placed : p.done;
+    const built = running || state === 'finishing' || state === 'celebrating' ? home.constructionPlaced : p.done;
     ui.bpFill.style.width = `${Math.round((100 * built) / info.total)}%`;
   }
   setHidden(ui.bpChange, !idle || !!p);
@@ -751,7 +809,7 @@ function render() {
 
   setHidden(ui.peek, !running);
   ui.peek.disabled = rig.flying;
-  setText(ui.peek, where === 'site' ? 'View world' : 'Back to site');
+  setText(ui.peek, where === 'build' ? 'Whole island' : 'Back to the building');
 
   const n = save.sessions;
   const b = save.buildings.filter((x) => !isDecor(x.kind)).length;
@@ -938,16 +996,20 @@ window.addEventListener('pointerdown', () => sfx.unlockAudio(), { once: true });
 
 setInterval(tick, 250); // keeps the session honest when rAF is throttled in background tabs
 
-// Resume a session that was running when the page was closed.
-if (save.session && save.project) {
-  const s = save.session;
-  site.setProject(save.project, s.startDone + Math.floor(progressOf(s) * s.quota), s.startDone + s.quota);
+// Resume a session that was running when the page was closed (its blocks are already standing).
+if (save.session && save.project?.x != null) {
   state = 'running';
-  where = 'site';
-  rig.snap(stations.site());
+  where = 'build';
+  rig.snap(stations.build());
   tick();
 } else {
   save.session = null;
+  // a project finished while the tab was in the background, then closed before its celebration
+  if (save.project?.complete) {
+    if (save.project.x == null) choosePlot(save.project);
+    if (!home.construction) home.setConstruction(save.project, save.project.done);
+    finalizeProject();
+  }
   rig.snap(stations.home());
 }
 
@@ -1044,21 +1106,21 @@ function frame(now) {
   prev = now;
   const t = now / 1000;
 
-  if (state !== 'placing' && state !== 'building' && state !== 'editing' && !debugFreeze) home.group.rotation.y += dt * 0.05;
+  if (state === 'home' && !debugFreeze) home.group.rotation.y += dt * 0.05;
   home.group.position.y = Math.sin(t * 0.7) * 0.25;
-  site.group.position.y = SITE_POS.y + Math.sin(t * 0.9 + 1.3) * 0.2;
 
   tick();
-  if (state === 'finishing' && !document.hidden && !rig.flying && site.settled) celebrate();
+  if (state === 'finishing' && !document.hidden && !rig.flying && home.constructionSettled) celebrate();
 
+  view.clouds.setIsland(save.islandRadius);
   view.clouds.update(dt);
+  sky.closeUp = where === 'build';
   sky.update(dt, view.controls.target, view.camera);
   tickMaterials(dt);
   home.update(dt);
   editor.update(dt);
   editor.render();
   life.update(dt, { day: sky.day, rain: sky.p.rain + sky.p.snow * 0.5, cloud: sky.p.cloud });
-  site.update(dt);
   rig.update(dt);
   skyUiTimer -= dt;
   if (skyUiTimer <= 0) {
@@ -1111,7 +1173,9 @@ window.vfw = {
     view.camera.position.copy(v).addScaledVector(dir, dist);
     view.controls.update();
   },
-  site,
+  get construction() {
+    return home.construction;
+  },
   finishNow() {
     if (state === 'running') save.session.startedAt = Date.now() - save.session.durationMs;
   },

@@ -564,6 +564,9 @@ html, body {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .layout-card:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 3px var(--go); background: #fff6ef; }
+.layout-card { position: relative; }
+.layout-card.current { box-shadow: inset 0 0 0 3px var(--go); background: #fff6ef; }
+.layout-card .tag { position: absolute; top: 14px; left: 14px; padding: 3px 8px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 800; }
 .layout-art { width: 100%; height: auto; display: block; }
 .la-bg { fill: #9fd77f; }
 .la-sq { fill: #e9dfcf; stroke: #c6bfb2; stroke-width: 2; }

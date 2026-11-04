@@ -53,6 +53,7 @@ export class Home {
     this.landmarks = []; // fixed structures of the land itself: { kind, rect, blocks, spinner }
     this.extraReserve = []; // rects about to be built on (layout moves): keep nature off them
     this.preferRoads = null; // while re-routing: old road cells are cheaper, so roads stay put
+    this.construction = null; // the project going up on its plot (see setConstruction)
 
     this.tileMat = new THREE.MeshBasicMaterial({ color: 0x5be37d, transparent: true, opacity: 0.55, depthWrite: false });
     this.tiles = new VoxelBatch(new THREE.BoxGeometry(0.96, 0.06, 0.96), this.tileMat, 900, { shadows: false });
@@ -96,7 +97,10 @@ export class Home {
     }
     this.baseMap = merged;
     this.topCells = topCells;
-    this.fx.many('crumble', gone, 0.004, {});
+    // rock that is now buried by the new rim just disappears; only the old satellite rocks crumble
+    const buried = gone.filter((b) => topCells.has(key2(b.x, b.z)));
+    for (const b of buried) this.fx.remove(b);
+    this.fx.many('crumble', gone.filter((b) => !topCells.has(key2(b.x, b.z))), 0.004, {});
     wave.sort((a, b) => Math.atan2(a.z, a.x) - Math.atan2(b.z, b.x) || a.y - b.y);
     this.fx.many('drop', wave, Math.min(0.012, 3.2 / Math.max(1, wave.length)), { velocity: 0.8, height: 7 }, () => {
       this.refreshTerrain(true); // new land brings new hills, woods and water
@@ -149,7 +153,7 @@ export class Home {
       mark(l.rect, 1, noTree);
       mark(l.rect, 1, bare);
     }
-    for (const r of this.extraReserve) {
+    for (const r of this.construction ? [...this.extraReserve, this.construction.rect] : this.extraReserve) {
       mark(r, 1, flat);
       mark(r, 2, noTree);
     }
@@ -343,6 +347,7 @@ export class Home {
           }
         if (!ok) continue;
         if ([...this.buildings.values()].some(({ rect: o }) => !apart(rect, o, 1))) continue;
+        if (this.construction && !apart(rect, this.construction.rect, 1)) continue;
         return { x: wx, z: wz, flow, side };
       }
     }
@@ -502,6 +507,8 @@ export class Home {
     if (!this.topCells.has(key2(x, z)) || this.inFountain(x, z)) return false;
     for (const { rect } of this.buildings.values()) if (x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1) return false;
     for (const { rect } of this.landmarks) if (x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1) return false;
+    const c = this.construction?.rect;
+    if (c && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return false;
     return true;
   }
 
@@ -647,6 +654,165 @@ export class Home {
     return road;
   }
 
+  // ---------- construction: the project in progress, built where it will stand ----------
+
+  /**
+   * Show the current project at its plot (project.x / z / rot): the first `done` blocks stand.
+   * With `sessionEnd`, a ghost shows the rest (this session's share in colour, later ones pale).
+   */
+  setConstruction(project, done, sessionEnd = null, { animate = false } = {}) {
+    this.clearConstruction({ regrow: false });
+    const fp = footprint(project.kind, project.variant, project.rot || 0);
+    const blocks = placeBlocks(fp, project.x, project.z);
+    const placed = Math.min(done, blocks.length);
+    this.construction = { project, fp, rect: shiftRect(fp.rect, project.x, project.z), blocks, placed, target: placed, timer: 0, inFlight: 0 };
+    this.refreshTerrain(animate); // level the plot: trees and rocks on it crumble away
+    for (let i = 0; i < placed; i++) this.fx.add(blocks[i]);
+    if (sessionEnd != null) this.constructionGhost(sessionEnd);
+  }
+
+  constructionGhost(sessionEnd) {
+    const c = this.construction;
+    if (!c) return;
+    const pale = new THREE.Color(0xffffff);
+    this.fx.ghostPulse = true;
+    this.fx.ghostSet(
+      c.blocks.map((b, i) => (i < sessionEnd ? b : { ...b, color: new THREE.Color(b.color).lerp(pale, 0.8) })),
+      { pop: true },
+    );
+  }
+
+  /** Blocks [0, n) should be standing; the rest drop in one by one (a hidden tab catches up as a cascade). */
+  setConstructionTarget(n) {
+    const c = this.construction;
+    if (c) c.target = Math.max(c.target, Math.min(n, c.blocks.length));
+  }
+
+  get constructionPlaced() {
+    return this.construction?.placed ?? 0;
+  }
+
+  /** Every block that should be down has landed. */
+  get constructionSettled() {
+    const c = this.construction;
+    return !c || (c.placed >= c.target && c.inFlight === 0);
+  }
+
+  stepConstruction(dt) {
+    const c = this.construction;
+    if (!c) return;
+    c.timer = Math.max(0, c.timer - dt);
+    while (c.placed < c.target && c.timer <= 0) {
+      // a lone block during focus is quiet; a catch-up cascade gets the full thock
+      const behind = c.target - c.placed;
+      c.inFlight++;
+      this.fx.drop(c.blocks[c.placed], { velocity: behind > 1 ? 1 : 0.55, onEnd: () => c.inFlight-- });
+      c.placed++;
+      c.timer += 0.075;
+    }
+  }
+
+  /** Hop wave over blocks [from, end) once a session is done. */
+  celebrateConstruction(from, onDone) {
+    const c = this.construction;
+    if (!c) return void onDone?.();
+    this.fx.ghostClear();
+    const list = c.blocks.slice(from).filter((b) => b.handle != null);
+    this.fx.many('hop', list, Math.min(0.03, 2 / Math.max(1, list.length)), { velocity: 1 }, onDone);
+  }
+
+  /** Give up: blocks laid from index `from` onward fall apart; earlier sessions' work stays. */
+  crumbleConstruction(from, onDone) {
+    const c = this.construction;
+    if (!c) return void onDone?.();
+    this.fx.finishSome(c.blocks);
+    c.inFlight = 0;
+    this.fx.ghostClear();
+    const standing = c.blocks.slice(from).filter((b) => b.handle != null).reverse();
+    c.placed = c.target = from;
+    this.fx.many('crumble', standing, Math.min(0.05, 2.5 / Math.max(1, standing.length)), { cx: c.project.x, cz: c.project.z }, onDone);
+  }
+
+  /** Take the project off the island (nothing built yet, or a reload); nature grows back with regrow. */
+  clearConstruction({ regrow = true } = {}) {
+    const c = this.construction;
+    if (!c) return;
+    this.fx.finishSome(c.blocks);
+    for (const b of c.blocks) this.fx.remove(b);
+    this.fx.ghostClear();
+    this.construction = null;
+    if (regrow) this.refreshTerrain(true);
+  }
+
+  /** The project is complete: it becomes a real building where it stands. Returns the new road cells. */
+  completeConstruction(record) {
+    const c = this.construction;
+    if (c) {
+      this.fx.finishSome(c.blocks);
+      for (const b of c.blocks) this.fx.remove(b);
+      this.fx.ghostClear();
+      this.construction = null;
+    }
+    const entry = this.entryFor(record); // same blocks in the same places, so the swap is invisible
+    for (const b of entry.blocks) this.fx.add(b);
+    this.buildings.set(record.id, entry);
+    this.activate(entry);
+    const road = this.routeFor(entry);
+    this.pave(road, true);
+    return road;
+  }
+
+  /**
+   * Where a new building goes under layout `tpl`, leaving everything already built where it is:
+   * the template's best free spot that covers no road, door turned the way the template likes.
+   * Returns { x, z, rot } or null when nothing fits (grow the island and ask again).
+   */
+  planNext(tpl, kind, variant) {
+    const entries = [...this.buildings.values()].filter((e) => !e.fp.decor);
+    const fp0 = footprint(kind, variant, 0);
+    const fresh = { record: { id: -1, kind, variant, x: 0, z: 0, rot: 0 }, fp: fp0, rect: fp0.rect };
+    const ctx = tpl.setup({ home: this, entries: [...entries, fresh], square: this.square || { x: 0, z: 0 } });
+    // templates that track what's been placed (countryside spacing, the high street's length) see the village as it is
+    for (const e of entries) ctx.onPlace?.(e, { x: e.record.x, z: e.record.z, rot: e.record.rot || 0 }, e.rect);
+    const cells = [...this.topCells].map((k) => k.split(',').map(Number));
+    const best = this.bestSpot(ctx, fresh, cells, {});
+    return best && { x: best.x, z: best.z, rot: best.rot };
+  }
+
+  /** The template's best valid spot + rotation for entry e among cells (shared by planLayout and planNext). */
+  bestSpot(ctx, e, cells, checkOpts) {
+    const rec = e.record;
+    const cand = [];
+    for (const [x, z] of cells) {
+      const sc = ctx.score(x, z, e);
+      if (Number.isFinite(sc)) cand.push({ x, z, s: sc });
+    }
+    cand.sort((a, b) => a.s - b.s);
+    let best = null;
+    for (const c of cand) {
+      if (best && c.s >= best.score) break;
+      const face = ctx.face ? ctx.face(c.x, c.z, e) : null;
+      for (let rot = 0; rot < 4; rot++) {
+        let pen = 0;
+        if (face) {
+          const [dx, dz] = rotateXZ(0, 1, rot); // the front door's direction
+          const vx = face[0] - c.x;
+          const vz = face[1] - c.z;
+          const len = Math.hypot(vx, vz);
+          if (len > 0.5) pen = (1 - (dx * vx + dz * vz) / len) * 1.2;
+        }
+        const score = c.s + pen;
+        if (best && score >= best.score) continue;
+        const fp = footprint(rec.kind, rec.variant, rot);
+        if (this.check(fp, c.x, c.z, checkOpts)) continue;
+        const rect = shiftRect(fp.rect, c.x, c.z);
+        if (ctx.keepClear?.(rect)) continue;
+        best = { x: c.x, z: c.z, rot, score, rect };
+      }
+    }
+    return best;
+  }
+
   // ---------- editing (phase 6) ----------
 
   /**
@@ -772,34 +938,7 @@ export class Home {
     try {
       for (const e of ctx.order) {
         const rec = e.record;
-        const cand = [];
-        for (const [x, z] of cells) {
-          const sc = ctx.score(x, z, e);
-          if (Number.isFinite(sc)) cand.push({ x, z, s: sc });
-        }
-        cand.sort((a, b) => a.s - b.s);
-        let best = null;
-        for (const c of cand) {
-          if (best && c.s >= best.score) break;
-          const face = ctx.face ? ctx.face(c.x, c.z, e) : null;
-          for (let rot = 0; rot < 4; rot++) {
-            let pen = 0;
-            if (face) {
-              const [dx, dz] = rotateXZ(0, 1, rot); // the front door's direction
-              const vx = face[0] - c.x;
-              const vz = face[1] - c.z;
-              const len = Math.hypot(vx, vz);
-              if (len > 0.5) pen = (1 - (dx * vx + dz * vz) / len) * 1.2;
-            }
-            const score = c.s + pen;
-            if (best && score >= best.score) continue;
-            const fp = footprint(rec.kind, rec.variant, rot);
-            if (this.check(fp, c.x, c.z, { ignoreRoads: true })) continue;
-            const rect = shiftRect(fp.rect, c.x, c.z);
-            if (ctx.keepClear?.(rect)) continue;
-            best = { x: c.x, z: c.z, rot, score, rect };
-          }
-        }
+        const best = this.bestSpot(ctx, e, cells, { ignoreRoads: true });
         if (!best) return null;
         moves.push({ id: rec.id, x: best.x, z: best.z, rot: best.rot });
         ctx.onPlace?.(e, best, best.rect);
@@ -897,6 +1036,7 @@ export class Home {
   }
 
   update(dt) {
+    this.stepConstruction(dt);
     for (const e of this.emitters) {
       e.t -= dt;
       if (e.t <= 0) {
@@ -948,6 +1088,7 @@ export class Home {
       const gap = fp.decor || ofp.decor ? 0 : GAP;
       if (!apart(r, o, gap)) return gap ? 'Too close to another building' : 'Something is already there';
     }
+    if (this.construction && !apart(r, this.construction.rect, fp.decor ? 0 : GAP)) return 'Too close to the building going up';
     if (!ignoreRoads) for (let cx = r.x0; cx <= r.x1; cx++) for (let cz = r.z0; cz <= r.z1; cz++) if (this.paths.has(key2(cx, cz))) return 'Keep the road clear';
     return null;
   }

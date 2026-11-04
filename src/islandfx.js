@@ -226,6 +226,17 @@ export class IslandFX {
     this.anims = [];
   }
 
+  /** finishAll for just these blocks (the rest of the island keeps animating). */
+  finishSome(blocks) {
+    const set = new Set(blocks);
+    this.anims = this.anims.filter((a) => {
+      if (!set.has(a.b)) return true;
+      if (a.kind === 'crumble' || a.kind === 'lift') this.remove(a.b);
+      else if (a.b.handle != null) this.pose(a.b, a.b.x, a.b.y, a.b.z);
+      return false;
+    });
+  }
+
   // ---------- dust ----------
 
   puff(x, y, z, count = 8, strength = 1) {

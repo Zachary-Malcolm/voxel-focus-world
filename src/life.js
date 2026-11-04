@@ -208,6 +208,8 @@ export class Life {
   occupied(x, z) {
     for (const { rect } of this.home.buildings.values()) if (x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1) return true;
     for (const { rect } of this.home.landmarks) if (x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1) return true;
+    const c = this.home.construction?.rect;
+    if (c && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1) return true;
     return this.home.inFountain(x, z);
   }
 

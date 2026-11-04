@@ -35,6 +35,10 @@ function addLump(blocks, seed, salt, radius, cx, cy, cz, topCells) {
   const maxDepth = Math.max(2, Math.round(Math.min(radius, 9) * 1.15 + Math.max(0, radius - 9) * 0.5));
   const R = Math.ceil(radius + 1);
 
+  // Column depths first, so blocks buried on every side can be skipped: a big island is mostly
+  // hidden rock, and leaving it out keeps the block count (and phones) happy.
+  const depths = new Map();
+  const cols = [];
   for (let x = -R; x <= R; x++) {
     for (let z = -R; z <= R; z++) {
       const d = Math.hypot(x, z);
@@ -44,17 +48,26 @@ function addLump(blocks, seed, salt, radius, cx, cy, cz, topCells) {
       const t = 1 - d / e;
       const depth = 2 + Math.round(Math.pow(t, 1.25) * maxDepth * 1.5 + cell() * 1.4);
       const dirt = 1 + (cell() < 0.5 ? 1 : 0);
-      for (let k = 0; k < depth; k++) {
-        // per-block colour draws come from their own stream so depth changes never shift them
-        const c = mulberry32(hash2(hash2(seed, salt), (x + 512) * 1048576 + (z + 512) * 1024 + k));
-        let color;
-        let mat;
-        if (k === 0) (color = GRASS[Math.floor(c() * GRASS.length)]), (mat = 'grass');
-        else if (k <= dirt) (color = DIRT), (mat = 'dirt');
-        else (color = STONE[Math.floor(c() * STONE.length)]), (mat = 'rock');
-        blocks.push({ x: cx + x, y: cy - k, z: cz + z, color: jitterColor(color, c), mat });
-      }
-      if (topCells) topCells.add(`${x},${z}`);
+      depths.set(`${x},${z}`, depth);
+      cols.push([x, z, depth, dirt]);
     }
+  }
+  const depthAt = (x, z) => depths.get(`${x},${z}`) || 0;
+
+  for (const [x, z, depth, dirt] of cols) {
+    // k = 0 (grass) and 1 (the bed under water) always show; deeper ones only on a side or the bottom
+    const shallowest = Math.min(depthAt(x + 1, z), depthAt(x - 1, z), depthAt(x, z + 1), depthAt(x, z - 1));
+    for (let k = 0; k < depth; k++) {
+      if (k >= 2 && k < depth - 1 && k < shallowest) continue;
+      // per-block colour draws come from their own stream so depth changes never shift them
+      const c = mulberry32(hash2(hash2(seed, salt), (x + 512) * 1048576 + (z + 512) * 1024 + k));
+      let color;
+      let mat;
+      if (k === 0) (color = GRASS[Math.floor(c() * GRASS.length)]), (mat = 'grass');
+      else if (k <= dirt) (color = DIRT), (mat = 'dirt');
+      else (color = STONE[Math.floor(c() * STONE.length)]), (mat = 'rock');
+      blocks.push({ x: cx + x, y: cy - k, z: cz + z, color: jitterColor(color, c), mat });
+    }
+    if (topCells) topCells.add(`${x},${z}`);
   }
 }
