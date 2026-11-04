@@ -7,6 +7,10 @@ A focus timer for building a cozy voxel village. Focus sessions earn **coins**, 
 - `npm run build` gives a static `dist/` (about 1.03 MB / 271 kB gzip, mostly three + tone).
 - Stack: Vite 8, three 0.187, tone 15. No audio files: every sound is synthesised in `src/audio.js`. The only images are the app icons.
 
+## Repo + hosting (2026-11-04)
+- Git repo, **private** on GitHub: https://github.com/Zachary-Malcolm/voxel-focus-world (branch `main`). Zach wants it private for now. Commit messages end with the `Co-Authored-By: Claude …` line.
+- `.github/workflows/deploy.yml` builds and deploys `dist/` to GitHub Pages, but Pages is **not enabled** and the workflow is **disabled** (the first run built fine and failed at `configure-pages`). A Pages site is always public on the web, and Pages on a private repo needs a paid plan. When Zach says to go public: make the repo public, enable Pages (`build_type=workflow`), `gh workflow enable "Deploy to GitHub Pages"`, re-run it. The site would be https://zachary-malcolm.github.io/voxel-focus-world/ (`base: './'` already works under a sub-path). Confirm with Zach before any of that.
+
 ## Installable + offline (PWA, 2026-11-04)
 - `public/manifest.webmanifest` (name, short name "Focus World", standalone, sky-blue theme `#5fb8ff`) + `public/icons/` (192/512 "any", 192/512 maskable, apple-touch 180, favicon 32 png + svg). `index.html` links them; the brand mark in the top bar is `icons/favicon.svg`.
 - Service worker without extra packages: `src/sw-template.js` is filled in by the `vfw-offline` plugin in `vite.config.js` at build time (list of every built file + everything in `public/`, cache name `vfw-<hash of list + template>`) and written to `dist/sw.js`. Install precaches all of it; navigation = network first (3.5 s timeout) then the cached page; other files = cache first. Activate deletes older `vfw-*` caches, `skipWaiting` + `clients.claim` so a new build takes over on the next load. **Cache lookups need `ignoreVary: true`**: without it the module script / CSS requests (they carry Origin) missed the cache and offline loads came up unstyled.
